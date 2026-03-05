@@ -149,6 +149,27 @@ claude-sync pull
 | `~/.claude/settings.json` | Settings |
 | `~/.claude/CLAUDE.md` | Global instructions |
 
+## Limitations
+
+### Path-Based Session Indexing
+
+Claude Code indexes project sessions by **absolute filesystem path**. This tool syncs `~/.claude/projects/` but does not perform path remapping, which means:
+
+```
+/Users/alice/Projects/my-app → ~/.claude/projects/-Users-alice-Projects-my-app/
+/Users/bob/code/my-app       → ~/.claude/projects/-Users-bob-code-my-app/
+```
+
+These are treated as **completely different projects** by Claude Code. After syncing, `claude --resume` on machine2 won't find sessions from machine1 if the project paths differ.
+
+**Workaround:** Use consistent absolute paths across all devices. For example:
+
+- Always clone repos to `~/Projects/` on every machine
+- Use symlinks to maintain the same path structure
+- Consider a standardized home directory structure
+
+If you follow a consistent path convention, sessions will sync and resume correctly across devices.
+
 ## Commands
 
 ```bash
