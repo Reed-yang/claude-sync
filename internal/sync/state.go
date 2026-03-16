@@ -143,7 +143,11 @@ func HashFile(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func GetLocalFiles(claudeDir string, syncPaths []string) (map[string]os.FileInfo, error) {
+func GetLocalFiles(claudeDir string, syncPaths []string, f *Filter) (map[string]os.FileInfo, error) {
+	if f != nil && f.HasPathArgs() {
+		syncPaths = f.SyncPaths()
+	}
+
 	files := make(map[string]os.FileInfo)
 
 	for _, syncPath := range syncPaths {
@@ -171,6 +175,9 @@ func GetLocalFiles(claudeDir string, syncPaths []string) (map[string]os.FileInfo
 				}
 
 				relPath, _ := filepath.Rel(claudeDir, path)
+				if f != nil && !f.ShouldInclude(relPath) {
+					return nil
+				}
 				files[relPath] = fi
 				return nil
 			})
@@ -180,6 +187,9 @@ func GetLocalFiles(claudeDir string, syncPaths []string) (map[string]os.FileInfo
 		} else {
 			// Skip symlinks
 			if info.Mode()&os.ModeSymlink != 0 {
+				continue
+			}
+			if f != nil && !f.ShouldInclude(syncPath) {
 				continue
 			}
 			files[syncPath] = info
@@ -197,10 +207,10 @@ type FileChange struct {
 	LocalTime time.Time
 }
 
-func (s *SyncState) DetectChanges(claudeDir string, syncPaths []string) ([]FileChange, error) {
+func (s *SyncState) DetectChanges(claudeDir string, syncPaths []string, f *Filter) ([]FileChange, error) {
 	var changes []FileChange
 
-	localFiles, err := GetLocalFiles(claudeDir, syncPaths)
+	localFiles, err := GetLocalFiles(claudeDir, syncPaths, f)
 	if err != nil {
 		return nil, err
 	}
@@ -235,6 +245,9 @@ func (s *SyncState) DetectChanges(claudeDir string, syncPaths []string) ([]FileC
 
 	// Check for deleted files
 	for relPath := range s.Files {
+		if f != nil && !f.ShouldInclude(relPath) {
+			continue
+		}
 		if _, exists := localFiles[relPath]; !exists {
 			changes = append(changes, FileChange{
 				Path:   relPath,

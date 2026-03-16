@@ -175,7 +175,7 @@ func TestGetLocalFiles(t *testing.T) {
 
 	// Test GetLocalFiles with specific sync paths
 	syncPaths := []string{"CLAUDE.md", "settings.json", "agents", "skills"}
-	localFiles, err := GetLocalFiles(tmpDir, syncPaths)
+	localFiles, err := GetLocalFiles(tmpDir, syncPaths, nil)
 	if err != nil {
 		t.Fatalf("GetLocalFiles failed: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestDetectChanges(t *testing.T) {
 	}
 
 	// First detection - all files should be "add"
-	changes, err := state.DetectChanges(tmpDir, []string{"file1.txt", "file2.txt"})
+	changes, err := state.DetectChanges(tmpDir, []string{"file1.txt", "file2.txt"}, nil)
 	if err != nil {
 		t.Fatalf("DetectChanges failed: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestDetectChanges(t *testing.T) {
 	}
 
 	// Second detection - no changes expected
-	changes, err = state.DetectChanges(tmpDir, []string{"file1.txt", "file2.txt"})
+	changes, err = state.DetectChanges(tmpDir, []string{"file1.txt", "file2.txt"}, nil)
 	if err != nil {
 		t.Fatalf("DetectChanges failed: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestDetectChanges(t *testing.T) {
 		t.Fatalf("Failed to modify file: %v", err)
 	}
 
-	changes, err = state.DetectChanges(tmpDir, []string{"file1.txt", "file2.txt"})
+	changes, err = state.DetectChanges(tmpDir, []string{"file1.txt", "file2.txt"}, nil)
 	if err != nil {
 		t.Fatalf("DetectChanges failed: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestDetectChanges(t *testing.T) {
 		t.Fatalf("Failed to delete file: %v", err)
 	}
 
-	changes, err = state.DetectChanges(tmpDir, []string{"file1.txt", "file2.txt"})
+	changes, err = state.DetectChanges(tmpDir, []string{"file1.txt", "file2.txt"}, nil)
 	if err != nil {
 		t.Fatalf("DetectChanges failed: %v", err)
 	}
@@ -310,7 +310,7 @@ func TestGetLocalFilesSkipsSymlinksInDirectories(t *testing.T) {
 		t.Skip("Symlinks not supported on this system")
 	}
 
-	localFiles, err := GetLocalFiles(tmpDir, []string{"subdir"})
+	localFiles, err := GetLocalFiles(tmpDir, []string{"subdir"}, nil)
 	if err != nil {
 		t.Fatalf("GetLocalFiles failed: %v", err)
 	}

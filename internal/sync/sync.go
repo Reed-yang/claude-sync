@@ -25,6 +25,7 @@ type Syncer struct {
 	claudeDir  string
 	quiet      bool
 	onProgress ProgressFunc
+	filter     *Filter
 }
 
 type SyncResult struct {
@@ -89,6 +90,10 @@ func (s *Syncer) SetProgressFunc(fn ProgressFunc) {
 	s.onProgress = fn
 }
 
+func (s *Syncer) SetFilter(f *Filter) {
+	s.filter = f
+}
+
 func (s *Syncer) progress(event ProgressEvent) {
 	if s.onProgress != nil {
 		s.onProgress(event)
@@ -106,7 +111,7 @@ func (s *Syncer) Push(ctx context.Context) (*SyncResult, error) {
 
 	s.progress(ProgressEvent{Action: "scan", Path: "Detecting changes..."})
 
-	changes, err := s.state.DetectChanges(s.claudeDir, config.SyncPaths)
+	changes, err := s.state.DetectChanges(s.claudeDir, config.SyncPaths, s.filter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to detect changes: %w", err)
 	}
@@ -195,8 +200,17 @@ func (s *Syncer) Pull(ctx context.Context) (*SyncResult, error) {
 		remoteFiles[localPath] = obj
 	}
 
+	// Filter remote files
+	if s.filter != nil {
+		for localPath := range remoteFiles {
+			if !s.filter.ShouldInclude(localPath) {
+				delete(remoteFiles, localPath)
+			}
+		}
+	}
+
 	// Get current local files
-	localFiles, err := GetLocalFiles(s.claudeDir, config.SyncPaths)
+	localFiles, err := GetLocalFiles(s.claudeDir, config.SyncPaths, s.filter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get local files: %w", err)
 	}
@@ -280,7 +294,7 @@ func (s *Syncer) Pull(ctx context.Context) (*SyncResult, error) {
 }
 
 func (s *Syncer) Status(ctx context.Context) ([]FileChange, error) {
-	return s.state.DetectChanges(s.claudeDir, config.SyncPaths)
+	return s.state.DetectChanges(s.claudeDir, config.SyncPaths, s.filter)
 }
 
 func (s *Syncer) uploadFile(ctx context.Context, relativePath string) error {
@@ -419,8 +433,17 @@ func (s *Syncer) PreviewPull(ctx context.Context) (*PullPreview, error) {
 		remoteFiles[localPath] = obj
 	}
 
+	// Filter remote files
+	if s.filter != nil {
+		for localPath := range remoteFiles {
+			if !s.filter.ShouldInclude(localPath) {
+				delete(remoteFiles, localPath)
+			}
+		}
+	}
+
 	// Get current local files
-	localFiles, err := GetLocalFiles(s.claudeDir, config.SyncPaths)
+	localFiles, err := GetLocalFiles(s.claudeDir, config.SyncPaths, s.filter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get local files: %w", err)
 	}
@@ -499,7 +522,7 @@ func (s *Syncer) Diff(ctx context.Context) ([]DiffEntry, error) {
 	var entries []DiffEntry
 
 	// Get local files
-	localFiles, err := GetLocalFiles(s.claudeDir, config.SyncPaths)
+	localFiles, err := GetLocalFiles(s.claudeDir, config.SyncPaths, s.filter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get local files: %w", err)
 	}
@@ -517,6 +540,15 @@ func (s *Syncer) Diff(ctx context.Context) ([]DiffEntry, error) {
 		}
 		localPath := s.localPath(obj.Key)
 		remoteFiles[localPath] = obj
+	}
+
+	// Filter remote files
+	if s.filter != nil {
+		for localPath := range remoteFiles {
+			if !s.filter.ShouldInclude(localPath) {
+				delete(remoteFiles, localPath)
+			}
+		}
 	}
 
 	// Find local-only and modified files

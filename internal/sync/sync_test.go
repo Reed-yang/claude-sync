@@ -65,7 +65,7 @@ func TestFullWorkflowWithLocalState(t *testing.T) {
 	state := NewState()
 
 	// Detect changes (should be all adds)
-	changes, err := state.DetectChanges(claudeDir, []string{"CLAUDE.md", "settings.json", "agents"})
+	changes, err := state.DetectChanges(claudeDir, []string{"CLAUDE.md", "settings.json", "agents"}, nil)
 	if err != nil {
 		t.Fatalf("DetectChanges failed: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestFullWorkflowWithLocalState(t *testing.T) {
 	t.Logf("Encrypted %d files", len(encryptedFiles))
 
 	// Verify no more changes after state update
-	changes, err = state.DetectChanges(claudeDir, []string{"CLAUDE.md", "settings.json", "agents"})
+	changes, err = state.DetectChanges(claudeDir, []string{"CLAUDE.md", "settings.json", "agents"}, nil)
 	if err != nil {
 		t.Fatalf("DetectChanges failed: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestSyncStateDetectsAllChangeTypes(t *testing.T) {
 	}
 
 	// Initial detection - all adds
-	changes, _ := state.DetectChanges(claudeDir, syncPaths)
+	changes, _ := state.DetectChanges(claudeDir, syncPaths, nil)
 	addCount := 0
 	for _, c := range changes {
 		if c.Action == "add" {
@@ -248,7 +248,7 @@ func TestSyncStateDetectsAllChangeTypes(t *testing.T) {
 	// file3 unchanged
 
 	// Detect changes
-	changes, _ = state.DetectChanges(claudeDir, syncPaths)
+	changes, _ = state.DetectChanges(claudeDir, syncPaths, nil)
 
 	var hasModify, hasDelete bool
 	for _, c := range changes {

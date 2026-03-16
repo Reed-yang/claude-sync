@@ -1815,7 +1815,7 @@ func hasExistingClaudeFiles() (bool, error) {
 		return false, nil
 	}
 
-	files, err := sync.GetLocalFiles(claudeDir, config.SyncPaths)
+	files, err := sync.GetLocalFiles(claudeDir, config.SyncPaths, nil)
 	if err != nil {
 		return false, err
 	}
@@ -1931,7 +1931,7 @@ func createBackup() (string, error) {
 	}
 
 	// Copy all syncable files to backup
-	files, err := sync.GetLocalFiles(claudeDir, config.SyncPaths)
+	files, err := sync.GetLocalFiles(claudeDir, config.SyncPaths, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to list files: %w", err)
 	}
