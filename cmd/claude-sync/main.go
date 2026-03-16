@@ -1000,7 +1000,7 @@ Examples:
 
 func statusCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "status",
+		Use:   "status [paths...]",
 		Short: "Show pending local changes",
 		Long:  `Display files that have been added, modified, or deleted locally.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -1013,6 +1013,10 @@ func statusCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+
+			ignoreFile := filepath.Join(config.ClaudeDir(), ".claudesyncignore")
+			filter := sync.NewFilter(args, ignoreFile)
+			syncer.SetFilter(filter)
 
 			ctx := context.Background()
 			changes, err := syncer.Status(ctx)
@@ -1078,7 +1082,7 @@ func statusCmd() *cobra.Command {
 
 func diffCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "diff",
+		Use:   "diff [paths...]",
 		Short: "Show differences between local and remote",
 		Long:  `Compare local ~/.claude with remote cloud storage.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -1091,6 +1095,10 @@ func diffCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+
+			ignoreFile := filepath.Join(config.ClaudeDir(), ".claudesyncignore")
+			filter := sync.NewFilter(args, ignoreFile)
+			syncer.SetFilter(filter)
 
 			ctx := context.Background()
 			entries, err := syncer.Diff(ctx)
