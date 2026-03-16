@@ -91,7 +91,7 @@ func TestBasicCrossDeviceSync(t *testing.T) {
 			t.Fatalf("failed to create syncer: %v", err)
 		}
 
-		result, err := syncer.Pull(ctx)
+		result, err := syncer.Pull(ctx, nil)
 		if err != nil {
 			t.Fatalf("pull failed: %v", err)
 		}
@@ -279,7 +279,7 @@ func TestPullWithExistingFiles(t *testing.T) {
 			len(preview.WouldKeep), len(preview.LocalOnlyFiles))
 
 		// Now actually pull
-		result, err := syncer.Pull(ctx)
+		result, err := syncer.Pull(ctx, nil)
 		if err != nil {
 			t.Fatalf("pull failed: %v", err)
 		}
@@ -387,7 +387,7 @@ func TestConflictResolution(t *testing.T) {
 			t.Fatalf("failed to create syncer B: %v", err)
 		}
 
-		resultB, err := syncerB.Pull(ctx)
+		resultB, err := syncerB.Pull(ctx, nil)
 		if err != nil {
 			t.Fatalf("initial pull failed: %v", err)
 		}
@@ -426,7 +426,7 @@ func TestConflictResolution(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to create syncer B: %v", err)
 		}
-		result, err := syncerB.Pull(ctx)
+		result, err := syncerB.Pull(ctx, nil)
 		if err != nil {
 			t.Fatalf("B pull failed: %v", err)
 		}

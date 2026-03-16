@@ -48,6 +48,11 @@ type ProgressEvent struct {
 
 type ProgressFunc func(event ProgressEvent)
 
+// PullOptions configures pull behavior.
+type PullOptions struct {
+	TargetDir string // If set, download to this dir instead of claudeDir; skip state updates
+}
+
 func NewSyncer(cfg *config.Config, quiet bool) (*Syncer, error) {
 	storageCfg := cfg.GetStorageConfig()
 	store, err := storage.New(storageCfg)
@@ -173,7 +178,14 @@ func (s *Syncer) Push(ctx context.Context) (*SyncResult, error) {
 	return result, nil
 }
 
-func (s *Syncer) Pull(ctx context.Context) (*SyncResult, error) {
+func (s *Syncer) Pull(ctx context.Context, opts *PullOptions) (*SyncResult, error) {
+	targetDir := s.claudeDir
+	skipState := false
+	if opts != nil && opts.TargetDir != "" {
+		targetDir = opts.TargetDir
+		skipState = true
+	}
+
 	result := &SyncResult{}
 
 	s.progress(ProgressEvent{Action: "scan", Path: "Fetching remote file list..."})
@@ -210,9 +222,10 @@ func (s *Syncer) Pull(ctx context.Context) (*SyncResult, error) {
 	}
 
 	// Get current local files
-	localFiles, err := GetLocalFiles(s.claudeDir, config.SyncPaths, s.filter)
+	localFiles, err := GetLocalFiles(targetDir, config.SyncPaths, s.filter)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get local files: %w", err)
+		// If targetDir doesn't exist yet, use empty map
+		localFiles = make(map[string]os.FileInfo)
 	}
 
 	// Build list of files to download
@@ -235,7 +248,7 @@ func (s *Syncer) Pull(ctx context.Context) (*SyncResult, error) {
 			if remoteObj.LastModified.After(stateFile.Uploaded) {
 				// Remote was updated after we last uploaded
 				// Check if local was also modified
-				localHash, _ := HashFile(filepath.Join(s.claudeDir, localPath))
+				localHash, _ := HashFile(filepath.Join(targetDir, localPath))
 				if localHash != stateFile.Hash {
 					// Conflict: both changed
 					result.Conflicts = append(result.Conflicts, localPath)
@@ -270,7 +283,7 @@ func (s *Syncer) Pull(ctx context.Context) (*SyncResult, error) {
 			Total:   total,
 		})
 
-		if err := s.downloadFile(ctx, task.localPath, task.remoteObj.Key); err != nil {
+		if err := s.downloadFileTo(ctx, task.localPath, task.remoteObj.Key, targetDir, skipState); err != nil {
 			s.progress(ProgressEvent{
 				Action: "download",
 				Path:   task.localPath,
@@ -284,10 +297,12 @@ func (s *Syncer) Pull(ctx context.Context) (*SyncResult, error) {
 
 	s.progress(ProgressEvent{Action: "download", Complete: true, Total: total})
 
-	s.state.LastPull = time.Now()
-	s.state.LastSync = time.Now()
-	if err := s.state.Save(); err != nil {
-		return result, fmt.Errorf("failed to save state: %w", err)
+	if !skipState {
+		s.state.LastPull = time.Now()
+		s.state.LastSync = time.Now()
+		if err := s.state.Save(); err != nil {
+			return result, fmt.Errorf("failed to save state: %w", err)
+		}
 	}
 
 	return result, nil
@@ -327,38 +342,39 @@ func (s *Syncer) uploadFile(ctx context.Context, relativePath string) error {
 	return nil
 }
 
-func (s *Syncer) downloadFile(ctx context.Context, relativePath, remoteKey string) error {
-	// Download
+func (s *Syncer) downloadFileTo(ctx context.Context, relativePath, remoteKey, targetDir string, skipState bool) error {
 	encrypted, err := s.storage.Download(ctx, remoteKey)
 	if err != nil {
 		return fmt.Errorf("failed to download: %w", err)
 	}
 
-	// Decrypt
 	data, err := s.encryptor.Decrypt(encrypted)
 	if err != nil {
 		return fmt.Errorf("failed to decrypt: %w", err)
 	}
 
-	// Ensure directory exists
-	fullPath := filepath.Join(s.claudeDir, relativePath)
+	fullPath := filepath.Join(targetDir, relativePath)
 	dir := filepath.Dir(fullPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	// Write file
 	if err := os.WriteFile(fullPath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write file: %w", err)
 	}
 
-	// Update state
-	info, _ := os.Stat(fullPath)
-	hash, _ := HashFile(fullPath)
-	s.state.UpdateFile(relativePath, info, hash)
-	s.state.MarkUploaded(relativePath)
+	if !skipState {
+		info, _ := os.Stat(fullPath)
+		hash, _ := HashFile(fullPath)
+		s.state.UpdateFile(relativePath, info, hash)
+		s.state.MarkUploaded(relativePath)
+	}
 
 	return nil
+}
+
+func (s *Syncer) downloadFile(ctx context.Context, relativePath, remoteKey string) error {
+	return s.downloadFileTo(ctx, relativePath, remoteKey, s.claudeDir, false)
 }
 
 func (s *Syncer) handleConflict(ctx context.Context, relativePath string, remoteObj storage.ObjectInfo) error {

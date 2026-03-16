@@ -741,9 +741,14 @@ func runGCSWizard(projectID, credentialsFile, bucket string) (*storage.StorageCo
 
 func pushCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "push",
+		Use:   "push [paths...]",
 		Short: "Upload local changes to cloud storage",
-		Long:  `Encrypt and upload changed files from ~/.claude to cloud storage.`,
+		Long: `Encrypt and upload changed files from ~/.claude to cloud storage.
+
+Examples:
+  claude-sync push                         # Push all changes
+  claude-sync push projects/               # Push only files under projects/
+  claude-sync push settings.json todos.md  # Push specific files`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load()
 			if err != nil {
@@ -754,6 +759,11 @@ func pushCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+
+			// Build filter from CLI args and .claudesyncignore
+			ignoreFile := filepath.Join(config.ClaudeDir(), ".claudesyncignore")
+			filter := sync.NewFilter(args, ignoreFile)
+			syncer.SetFilter(filter)
 
 			if !quiet {
 				syncer.SetProgressFunc(func(event sync.ProgressEvent) {
@@ -843,9 +853,10 @@ func truncatePath(path string, maxLen int) string {
 
 func pullCmd() *cobra.Command {
 	var dryRun, force bool
+	var targetDir string
 
 	cmd := &cobra.Command{
-		Use:   "pull",
+		Use:   "pull [paths...]",
 		Short: "Download remote changes from cloud storage",
 		Long: `Download and decrypt changed files from cloud storage to ~/.claude.
 
@@ -853,9 +864,11 @@ On first pull with existing local files, you'll be prompted to confirm
 before any files are overwritten. Use --dry-run to preview changes first.
 
 Examples:
-  claude-sync pull              # Pull with safety prompts
-  claude-sync pull --dry-run    # Preview what would be changed
-  claude-sync pull --force      # Skip confirmation prompts`,
+  claude-sync pull                          # Pull with safety prompts
+  claude-sync pull --dry-run                # Preview what would be changed
+  claude-sync pull --force                  # Skip confirmation prompts
+  claude-sync pull projects/                # Pull only files under projects/
+  claude-sync pull --target /tmp/restore    # Download to custom directory`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load()
 			if err != nil {
@@ -865,6 +878,16 @@ Examples:
 			syncer, err := sync.NewSyncer(cfg, quiet)
 			if err != nil {
 				return err
+			}
+
+			// Build filter from CLI args and .claudesyncignore
+			ignoreFile := filepath.Join(config.ClaudeDir(), ".claudesyncignore")
+			filter := sync.NewFilter(args, ignoreFile)
+			syncer.SetFilter(filter)
+
+			var pullOpts *sync.PullOptions
+			if targetDir != "" {
+				pullOpts = &sync.PullOptions{TargetDir: targetDir}
 			}
 
 			ctx := context.Background()
@@ -877,7 +900,7 @@ Examples:
 				}
 
 				if hasExisting && !force {
-					return handleFirstPullWithExistingFiles(ctx, syncer, dryRun)
+					return handleFirstPullWithExistingFiles(ctx, syncer, dryRun, pullOpts)
 				}
 			}
 
@@ -920,7 +943,7 @@ Examples:
 				})
 			}
 
-			result, err := syncer.Pull(ctx)
+			result, err := syncer.Pull(ctx, pullOpts)
 			if err != nil {
 				return err
 			}
@@ -970,6 +993,7 @@ Examples:
 
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be changed without making changes")
 	cmd.Flags().BoolVar(&force, "force", false, "Overwrite existing files without confirmation")
+	cmd.Flags().StringVar(&targetDir, "target", "", "Download to custom directory (read-only, does not update state)")
 
 	return cmd
 }
@@ -1825,7 +1849,7 @@ func hasExistingClaudeFiles() (bool, error) {
 
 // handleFirstPullWithExistingFiles handles the case where the user is pulling
 // for the first time but already has local files that could be overwritten
-func handleFirstPullWithExistingFiles(ctx context.Context, syncer *sync.Syncer, dryRun bool) error {
+func handleFirstPullWithExistingFiles(ctx context.Context, syncer *sync.Syncer, dryRun bool, pullOpts *sync.PullOptions) error {
 	// Get preview of what would happen
 	preview, err := syncer.PreviewPull(ctx)
 	if err != nil {
@@ -1905,12 +1929,12 @@ func handleFirstPullWithExistingFiles(ctx context.Context, syncer *sync.Syncer, 
 		}
 		printSuccess("Backup created: " + backupDir)
 		fmt.Println()
-		return executePull(ctx, syncer)
+		return executePull(ctx, syncer, pullOpts)
 
 	case 1:
 		// Proceed without backup
 		fmt.Println()
-		return executePull(ctx, syncer)
+		return executePull(ctx, syncer, pullOpts)
 
 	default:
 		// Abort
@@ -2029,7 +2053,7 @@ func showPullPreview(ctx context.Context, syncer *sync.Syncer) error {
 }
 
 // executePull performs the actual pull operation with progress output
-func executePull(ctx context.Context, syncer *sync.Syncer) error {
+func executePull(ctx context.Context, syncer *sync.Syncer, pullOpts *sync.PullOptions) error {
 	if !quiet {
 		syncer.SetProgressFunc(func(event sync.ProgressEvent) {
 			if event.Error != nil {
@@ -2063,7 +2087,7 @@ func executePull(ctx context.Context, syncer *sync.Syncer) error {
 		})
 	}
 
-	result, err := syncer.Pull(ctx)
+	result, err := syncer.Pull(ctx, pullOpts)
 	if err != nil {
 		return err
 	}
