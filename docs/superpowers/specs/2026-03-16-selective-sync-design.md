@@ -94,9 +94,11 @@ plugins/cache/
 
 | File | Change |
 |------|--------|
-| `cmd/claude-sync/main.go` | `pushCmd`/`pullCmd`: parse positional args; `pullCmd`: add `--target` flag; pass filter and targetDir to Syncer |
-| `internal/sync/sync.go` | `Push()`/`Pull()`: accept `*Filter` parameter and optional `targetDir`; apply filtering in file selection |
-| `internal/sync/state.go` | `GetLocalFiles()`: accept filter, apply ignore rules during walk |
+| `cmd/claude-sync/main.go` | `pushCmd`/`pullCmd`: parse positional args; `pullCmd`: add `--target` flag; pass filter and targetDir to Syncer. Update direct `GetLocalFiles()` calls at ~lines 1818 and 1934 to use filter. |
+| `internal/sync/sync.go` | `Push()`/`Pull()`/`Status()`/`PreviewPull()`/`Diff()`: accept `*Filter` parameter; `Pull()` accepts optional `targetDir`. When `targetDir` is set, write files there and skip all `s.state` updates (both in `Pull()` and `downloadFile()`). |
+| `internal/sync/state.go` | `GetLocalFiles()`: accept `*Filter` parameter. When CLI paths are provided, they **replace** `syncPaths` as the walk roots; when absent, `syncPaths` (hard-coded default) is used. `.claudesyncignore` is applied during walk in both cases. `DetectChanges()`: apply filter to deletion detection — files outside filter scope are not treated as deletions. |
+| `internal/sync/sync_test.go` | Update tests for Push/Pull/Status/Diff to cover filtered scenarios |
+| `internal/sync/state_test.go` | Update tests for GetLocalFiles/DetectChanges with filter |
 
 ### Unchanged
 
@@ -107,7 +109,7 @@ plugins/cache/
 
 ### Estimated Scope
 
-~300 lines added/modified.
+~450 lines added/modified.
 
 ## Behavior Matrix
 
@@ -124,5 +126,9 @@ plugins/cache/
 - **Path doesn't exist locally (push):** Skip with warning, not an error
 - **Path doesn't exist remotely (pull):** Skip with warning, not an error
 - **`--target` with `--dry-run`:** Show what would be downloaded to target dir
+- **`--target` with `--force`:** `--force` is ignored (no local state to conflict with)
 - **`.claudesyncignore` itself:** Not ignored by default (can be synced between devices)
+- **`.claudesyncignore` loaded once:** Rules are read at operation start and not re-evaluated mid-operation, avoiding chicken-and-egg issues if the ignore file itself is synced
+- **Selective push and deletions:** When CLI paths are specified, only files within the filter scope are candidates for deletion detection. Files outside the scope are untouched.
+- **Remote-side filtering (pull):** After fetching the full remote object list via `storage.List()`, filter the list client-side before downloading. No changes to storage interface needed.
 - **Backward compatibility:** No args = identical to current behavior
