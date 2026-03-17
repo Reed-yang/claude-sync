@@ -161,6 +161,10 @@ for each path in SyncPaths {
 }
 ```
 
+If a Filter is active (CLI path args or .claudesyncignore):
+- CLI paths restrict which SyncPaths directories are walked
+- .claudesyncignore patterns exclude matching files
+
 **For each file:**
 ```
 ┌─────────────────────────────────────┐
@@ -207,6 +211,13 @@ For each file to upload:
 │  - GCS: Objects.Insert              │
 └─────────────────────────────────────┘
 ```
+
+### Parallel Upload (32 workers)
+
+Upload operations run concurrently using a goroutine worker pool:
+- Up to 32 files uploaded simultaneously
+- State updates protected by mutex
+- Progress counter is atomic (thread-safe)
 
 ### Phase 3: Progress Reporting
 
@@ -336,6 +347,13 @@ For non-conflict files:
 └─────────────────────────────────────┘
 ```
 
+### Parallel Download (32 workers)
+
+Download operations run concurrently using a goroutine worker pool:
+- Up to 32 files downloaded simultaneously
+- State updates protected by mutex
+- Progress counter is atomic (thread-safe)
+
 ### Phase 5: Progress Reporting
 
 ```
@@ -419,6 +437,83 @@ claude-sync conflicts --keep remote  # Keep all remote versions
 1. mv {path}.conflict.{timestamp} → {path}
 2. Delete conflict file
 3. Update state with new hash
+```
+
+---
+
+## Delete Workflow
+
+When you run `claude-sync delete [patterns...]`:
+
+### Phase 1: List & Match
+
+List all remote objects, strip `.age` suffix, match against doublestar glob patterns.
+
+Patterns use doublestar syntax:
+- `plugins/cache/**` — all files under cache
+- `projects/-home-*/**` — old-path sessions
+- `plugins/marketplaces/*/.git/**` — .git directories
+
+### Phase 2: Preview
+
+Always shows matched files with sizes before any deletion:
+```
+Will delete 147 files (3.46 MB):
+  - plugins/marketplaces/wakatime/.git/HEAD (223 B)
+  - plugins/marketplaces/wakatime/.git/config (477 B)
+  ...
+
+Type 'yes' to confirm deletion:
+```
+
+Use `--dry-run` to preview without prompting.
+
+### Phase 3: Batch Delete
+
+Deletes in batches of 1000 via `storage.DeleteBatch()`.
+Updates local state to remove deleted entries.
+
+---
+
+## Selective Sync
+
+### .claudesyncignore
+
+Place a `.claudesyncignore` file in `~/.claude/` to exclude paths from sync:
+
+```gitignore
+# Plugin git repos (auto-cloned on install)
+plugins/marketplaces/*/.git/
+
+# Plugin cache (auto-rebuilt on startup)
+plugins/cache/
+
+# Node modules
+**/node_modules/
+```
+
+Format follows `.gitignore` syntax (powered by `go-gitignore`).
+
+### Path Arguments
+
+All sync commands accept positional path arguments:
+
+```bash
+claude-sync push skills/ settings.json     # Push only these paths
+claude-sync pull projects/ CLAUDE.md       # Pull only these paths
+claude-sync status plugins/                # Show changes in plugins/
+claude-sync diff settings.json             # Compare specific file
+```
+
+Paths are relative to `~/.claude/`. When no args given, full sync is performed.
+
+### --target Flag (Pull Only)
+
+Download files to a custom directory without updating state:
+
+```bash
+claude-sync pull --target /tmp/backup                      # Full backup
+claude-sync pull --target /tmp/restore skills/ CLAUDE.md   # Selective backup
 ```
 
 ---

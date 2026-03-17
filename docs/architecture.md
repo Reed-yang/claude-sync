@@ -19,7 +19,7 @@ Claude Sync follows a **layered architecture** with a pluggable storage abstract
 │         cmd/claude-sync/main.go (~1500 lines)           │
 │                                                          │
 │  Commands: init, push, pull, status, diff, conflicts,   │
-│            reset, update, version                        │
+│            reset, update, delete, version                │
 │  UI: Interactive prompts (survey), progress reporting   │
 └────────────────────────┬────────────────────────────────┘
                          │
@@ -27,8 +27,12 @@ Claude Sync follows a **layered architecture** with a pluggable storage abstract
 │                   Sync Layer                             │
 │              internal/sync/                              │
 │                                                          │
-│  sync.go   - Syncer struct, push/pull orchestration     │
-│  state.go  - SyncState, FileState, change detection     │
+│  sync.go     - Syncer struct, push/pull orchestration    │
+│  state.go    - SyncState, FileState, change detection   │
+│  filter.go   - Selective sync (.claudesyncignore + path │
+│                 args)                                    │
+│  delete.go   - Glob-based remote deletion               │
+│  parallel.go - Worker pool for concurrent I/O           │
 └────────────────────────┬────────────────────────────────┘
                          │
            ┌─────────────┴─────────────┐
@@ -72,6 +76,7 @@ type Storage interface {
     Upload(ctx context.Context, key string, data []byte) error
     Download(ctx context.Context, key string) ([]byte, error)
     Delete(ctx context.Context, key string) error
+    DeleteBatch(ctx context.Context, keys []string) error
     List(ctx context.Context, prefix string) ([]ObjectInfo, error)
     Head(ctx context.Context, key string) (*ObjectInfo, error)
     BucketExists(ctx context.Context) (bool, error)
@@ -188,6 +193,8 @@ type Syncer struct {
     statePath   string           // ~/.claude-sync/state.json
     quiet       bool
     progressFn  func(ProgressEvent)
+    filter      *Filter          // Selective sync filter
+    stateMu     gosync.Mutex     // Guards concurrent state access
 }
 ```
 
@@ -196,6 +203,21 @@ type Syncer struct {
 - `Pull(ctx)` - Fetch remote state, download, decrypt
 - `Status(ctx)` - List pending local changes
 - `Diff(ctx)` - Compare local vs remote
+- `DeleteRemote(ctx, patterns, opts)` - Delete remote objects by glob patterns
+- `SetFilter(f *Filter)` - Attach a selective sync filter
+
+**filter.go - Selective Sync:**
+- Parses `.claudesyncignore` (gitignore-style rules)
+- Accepts explicit path arguments for push/pull scoping
+- Exposes `Filter.Match(path) bool` for inclusion/exclusion checks
+
+**delete.go - Remote Deletion:**
+- Implements `DeleteRemote` using glob pattern matching against remote keys
+- Supports dry-run mode and batch deletion via `Storage.DeleteBatch`
+
+**parallel.go - Concurrent I/O:**
+- Generic worker pool for parallel upload/download operations
+- Configurable concurrency with `WorkerPool(ctx, n, tasks)` helper
 
 **state.go - State Management:**
 ```go
@@ -339,6 +361,7 @@ Cloud Storage (via Storage interface)
 └── state.json       # Sync state (file hashes, timestamps)
 
 ~/.claude/           # Claude Code directory (synced)
+├── .claudesyncignore  # Selective sync ignore rules (optional)
 ├── CLAUDE.md
 ├── settings.json
 ├── settings.local.json
@@ -434,6 +457,8 @@ encryption_key_path: ~/.claude-sync/age-key.txt
 | `spf13/cobra` | v1.10.2 | CLI framework |
 | `AlecAivazis/survey/v2` | v2.3.7 | Interactive prompts |
 | `gopkg.in/yaml.v3` | v3.0.1 | Config parsing |
+| `github.com/bmatcuk/doublestar/v4` | v4.x | Glob pattern matching (delete command) |
+| `github.com/sabhiram/go-gitignore` | v0.0.0 | .claudesyncignore support |
 
 ---
 

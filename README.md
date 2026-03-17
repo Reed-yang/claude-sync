@@ -22,9 +22,14 @@
 - **Multi-provider storage**: Cloudflare R2, AWS S3, or Google Cloud Storage
 - **End-to-end encryption**: All files encrypted with age before upload
 - **Passphrase-based keys**: Same passphrase = same key on any device (no file copying)
+- **Selective sync**: Push/pull specific paths with CLI arguments
+- **.claudesyncignore**: Gitignore-style file exclusion rules
+- **Delete command**: Glob-based remote file cleanup with dry-run
+- **Parallel I/O**: 32-worker goroutine pool for push/pull
+- **Session remapping**: Script for path migration across machines
 - **Interactive wizard**: Arrow-key driven setup with validation
 - **Self-updating**: `claude-sync update` to get the latest version
-- **Simple CLI**: `push`, `pull`, `status`, `diff`, `conflicts` commands
+- **Simple CLI**: `push`, `pull`, `status`, `diff`, `delete`, `conflicts` commands
 
 <div align="center">
 <img src="assets/claude-sync.gif" alt="Claude Sync Demo" width="100%">
@@ -167,21 +172,23 @@ These are treated as **completely different projects** by Claude Code. After syn
 - Always clone repos to `~/Projects/` on every machine
 - Use symlinks to maintain the same path structure
 - Consider a standardized home directory structure
+- Use the `scripts/remap-sessions.sh` script to migrate session paths between machines
 
 If you follow a consistent path convention, sessions will sync and resume correctly across devices.
 
 ## Commands
 
 ```bash
-claude-sync init        # Set up configuration (interactive wizard)
-claude-sync push        # Upload local changes to cloud storage
-claude-sync pull        # Download remote changes from cloud storage
-claude-sync status      # Show pending local changes
-claude-sync diff        # Show differences between local and remote
-claude-sync conflicts   # List and resolve conflicts
-claude-sync reset       # Reset configuration (forgot passphrase)
-claude-sync update      # Update to latest version
-claude-sync --help      # Show all commands
+claude-sync init                  # Set up configuration (interactive wizard)
+claude-sync push [paths...]       # Upload (all or selected paths)
+claude-sync pull [paths...]       # Download (all or selected paths)
+claude-sync status [paths...]     # Show pending changes (all or selected)
+claude-sync diff [paths...]       # Compare local vs remote
+claude-sync delete [patterns...]  # Delete remote files matching glob patterns
+claude-sync conflicts             # List and resolve conflicts
+claude-sync reset                 # Reset configuration (forgot passphrase)
+claude-sync update                # Update to latest version
+claude-sync --help                # Show all commands
 ```
 
 ### Pull Options
@@ -191,6 +198,44 @@ claude-sync pull              # Normal pull (prompts if existing files)
 claude-sync pull --dry-run    # Preview what would change
 claude-sync pull --force      # Skip confirmation prompts
 ```
+
+### Selective Sync
+
+Push or pull only specific paths instead of everything:
+
+```bash
+# Push only skills and settings
+claude-sync push skills/ settings.json
+
+# Pull only a specific project
+claude-sync pull --target projects/my-app/
+```
+
+Exclude files from sync with a `.claudesyncignore` file at `~/.claude/.claudesyncignore`:
+
+```
+# Large or machine-specific files
+projects/*/ide-settings/
+plugins/cache/**
+*.tmp
+```
+
+### Delete Command
+
+Remove remote files matching glob patterns:
+
+```bash
+# Preview what would be deleted (always do this first)
+claude-sync delete "plugins/cache/**" --dry-run
+
+# Delete for real
+claude-sync delete "plugins/cache/**"
+
+# Multiple patterns
+claude-sync delete "*.tmp" "projects/old-*/**"
+```
+
+> **Warning:** Always use `--dry-run` first to verify which files will be removed.
 
 ### Init Options
 
@@ -309,7 +354,19 @@ Claude sessions typically use < 50MB. Syncing is effectively **free** on any pro
 
 ## Installation Options
 
-### npm (recommended)
+### Build from Source (recommended)
+
+**Prerequisite:** Go 1.21+
+
+```bash
+cd /mnt/novita2/siyuan/workspace/claude-sync
+make build
+./bin/claude-sync --version
+# Optionally install to PATH
+sudo cp ./bin/claude-sync /usr/local/bin/
+```
+
+### npm
 
 **Prerequisite:** Node.js 14+ (no Go required - downloads pre-compiled binary)
 
@@ -352,17 +409,6 @@ See [GitHub Releases](https://github.com/tawanorg/claude-sync/releases) for all 
 
 ```bash
 go install github.com/tawanorg/claude-sync/cmd/claude-sync@latest
-```
-
-### Build from Source
-
-**Prerequisite:** Go 1.21+
-
-```bash
-git clone https://github.com/tawanorg/claude-sync
-cd claude-sync
-make build
-./bin/claude-sync --version
 ```
 
 ## Development
