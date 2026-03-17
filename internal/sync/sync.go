@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	gosync "sync"
 	"time"
 
 	"github.com/tawanorg/claude-sync/internal/config"
@@ -26,6 +27,7 @@ type Syncer struct {
 	quiet      bool
 	onProgress ProgressFunc
 	filter     *Filter
+	stateMu    gosync.Mutex
 }
 
 type SyncResult struct {
@@ -126,47 +128,55 @@ func (s *Syncer) Push(ctx context.Context) (*SyncResult, error) {
 		return result, nil
 	}
 
-	total := len(changes)
-	for i, change := range changes {
+	// Separate uploads from deletes
+	var toUpload []FileChange
+	var toDelete []FileChange
+	for _, change := range changes {
 		switch change.Action {
 		case "add", "modify":
+			toUpload = append(toUpload, change)
+		case "delete":
+			toDelete = append(toDelete, change)
+		}
+	}
+
+	// Parallel uploads
+	if len(toUpload) > 0 {
+		pc := newProgressCounter(len(toUpload))
+		results := parallelDo(toUpload, func(change FileChange) fileResult {
+			err := s.uploadFile(ctx, change.Path)
+			current := pc.increment()
 			s.progress(ProgressEvent{
 				Action:  "upload",
 				Path:    change.Path,
 				Size:    change.LocalSize,
-				Current: i + 1,
-				Total:   total,
+				Current: int(current),
+				Total:   len(toUpload),
 			})
-
-			if err := s.uploadFile(ctx, change.Path); err != nil {
-				s.progress(ProgressEvent{
-					Action: "upload",
-					Path:   change.Path,
-					Error:  err,
-				})
-				result.Errors = append(result.Errors, fmt.Errorf("%s: %w", change.Path, err))
-				continue
+			return fileResult{Key: change.Path, Err: err}
+		})
+		for _, r := range results {
+			if r.Err != nil {
+				result.Errors = append(result.Errors, fmt.Errorf("%s: %w", r.Key, r.Err))
+			} else {
+				result.Uploaded = append(result.Uploaded, r.Key)
 			}
-			result.Uploaded = append(result.Uploaded, change.Path)
+		}
+	}
 
-		case "delete":
-			s.progress(ProgressEvent{
-				Action:  "delete",
-				Path:    change.Path,
-				Current: i + 1,
-				Total:   total,
-			})
-
-			remoteKey := s.remoteKey(change.Path)
-			if err := s.storage.Delete(ctx, remoteKey); err != nil {
-				result.Errors = append(result.Errors, fmt.Errorf("delete %s: %w", change.Path, err))
-				continue
-			}
+	// Sequential deletes (few files, already efficient)
+	for _, change := range toDelete {
+		s.progress(ProgressEvent{Action: "delete", Path: change.Path})
+		remKey := s.remoteKey(change.Path)
+		if err := s.storage.Delete(ctx, remKey); err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("delete %s: %w", change.Path, err))
+		} else {
 			s.state.RemoveFile(change.Path)
 			result.Deleted = append(result.Deleted, change.Path)
 		}
 	}
 
+	total := len(toUpload) + len(toDelete)
 	s.progress(ProgressEvent{Action: "upload", Complete: true, Total: total})
 
 	s.state.LastPush = time.Now()
@@ -274,25 +284,27 @@ func (s *Syncer) Pull(ctx context.Context, opts *PullOptions) (*SyncResult, erro
 
 	// Download files with progress
 	total := len(toDownload)
-	for i, task := range toDownload {
-		s.progress(ProgressEvent{
-			Action:  "download",
-			Path:    task.localPath,
-			Size:    task.remoteObj.Size,
-			Current: i + 1,
-			Total:   total,
-		})
-
-		if err := s.downloadFileTo(ctx, task.localPath, task.remoteObj.Key, targetDir, skipState); err != nil {
+	if total > 0 {
+		pc := newProgressCounter(total)
+		dlResults := parallelDo(toDownload, func(task downloadTask) fileResult {
+			err := s.downloadFileTo(ctx, task.localPath, task.remoteObj.Key, targetDir, skipState)
+			current := pc.increment()
 			s.progress(ProgressEvent{
-				Action: "download",
-				Path:   task.localPath,
-				Error:  err,
+				Action:  "download",
+				Path:    task.localPath,
+				Size:    task.remoteObj.Size,
+				Current: int(current),
+				Total:   total,
 			})
-			result.Errors = append(result.Errors, fmt.Errorf("%s: %w", task.localPath, err))
-			continue
+			return fileResult{Key: task.localPath, Err: err}
+		})
+		for _, r := range dlResults {
+			if r.Err != nil {
+				result.Errors = append(result.Errors, fmt.Errorf("%s: %w", r.Key, r.Err))
+			} else {
+				result.Downloaded = append(result.Downloaded, r.Key)
+			}
 		}
-		result.Downloaded = append(result.Downloaded, task.localPath)
 	}
 
 	s.progress(ProgressEvent{Action: "download", Complete: true, Total: total})
@@ -336,8 +348,10 @@ func (s *Syncer) uploadFile(ctx context.Context, relativePath string) error {
 	// Update state
 	info, _ := os.Stat(fullPath)
 	hash, _ := HashFile(fullPath)
+	s.stateMu.Lock()
 	s.state.UpdateFile(relativePath, info, hash)
 	s.state.MarkUploaded(relativePath)
+	s.stateMu.Unlock()
 
 	return nil
 }
@@ -366,8 +380,10 @@ func (s *Syncer) downloadFileTo(ctx context.Context, relativePath, remoteKey, ta
 	if !skipState {
 		info, _ := os.Stat(fullPath)
 		hash, _ := HashFile(fullPath)
+		s.stateMu.Lock()
 		s.state.UpdateFile(relativePath, info, hash)
 		s.state.MarkUploaded(relativePath)
+		s.stateMu.Unlock()
 	}
 
 	return nil
@@ -397,6 +413,10 @@ func (s *Syncer) remoteKey(relativePath string) string {
 func (s *Syncer) localPath(remoteKey string) string {
 	// Remove .age extension
 	return strings.TrimSuffix(remoteKey, ".age")
+}
+
+func (s *Syncer) ListRemote(ctx context.Context) ([]storage.ObjectInfo, error) {
+	return s.storage.List(ctx, "")
 }
 
 func (s *Syncer) GetState() *SyncState {

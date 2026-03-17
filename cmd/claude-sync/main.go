@@ -63,6 +63,7 @@ func main() {
 		conflictsCmd(),
 		resetCmd(),
 		updateCmd(),
+		deleteCmd(),
 	)
 
 	if err := rootCmd.Execute(); err != nil {
@@ -2139,4 +2140,92 @@ func executePull(ctx context.Context, syncer *sync.Syncer, pullOpts *sync.PullOp
 	}
 
 	return nil
+}
+
+func deleteCmd() *cobra.Command {
+	var dryRun bool
+
+	cmd := &cobra.Command{
+		Use:   "delete [patterns...]",
+		Short: "Delete remote files matching glob patterns",
+		Long: `Delete files from remote storage that match the given glob patterns.
+Patterns use doublestar syntax (e.g., "plugins/cache/**", "projects/-home-*/**").
+
+Always run with --dry-run first to preview what will be deleted.`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load()
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+
+			syncer, err := sync.NewSyncer(cfg, false)
+			if err != nil {
+				return fmt.Errorf("failed to create syncer: %w", err)
+			}
+
+			ctx := cmd.Context()
+
+			// Always preview first
+			preview, err := syncer.DeleteRemote(ctx, args, sync.DeleteRemoteOptions{DryRun: true})
+			if err != nil {
+				return err
+			}
+
+			if len(preview.Matched) == 0 {
+				fmt.Println("No files matched the given patterns.")
+				return nil
+			}
+
+			var totalSize int64
+			for _, obj := range preview.Matched {
+				totalSize += obj.Size
+			}
+
+			fmt.Printf("\033[1m%s %d files (%.2f MB):\033[0m\n",
+				map[bool]string{true: "Dry run — would delete", false: "Will delete"}[dryRun],
+				len(preview.Matched), float64(totalSize)/1048576)
+			for _, obj := range preview.Matched {
+				key := strings.TrimSuffix(obj.Key, ".age")
+				fmt.Printf("  \033[31m-\033[0m %s (%s)\n", key, formatSize(obj.Size))
+			}
+
+			if dryRun {
+				return nil
+			}
+
+			// Warn if > 50%
+			allObjects, _ := syncer.ListRemote(ctx)
+			if allObjects != nil && len(preview.Matched) > len(allObjects)/2 {
+				fmt.Printf("\n\033[33m⚠ Warning: This will delete more than 50%% of all remote files (%d/%d)\033[0m\n",
+					len(preview.Matched), len(allObjects))
+			}
+
+			fmt.Print("\nType 'yes' to confirm deletion: ")
+			var confirm string
+			fmt.Scanln(&confirm)
+			if confirm != "yes" {
+				fmt.Println("Aborted.")
+				return nil
+			}
+
+			// Execute actual deletion
+			result, err := syncer.DeleteRemote(ctx, args, sync.DeleteRemoteOptions{DryRun: false})
+			if err != nil {
+				return err
+			}
+
+			fmt.Printf("\n\033[32mDeleted %d files.\033[0m\n", result.Deleted)
+			if len(result.Errors) > 0 {
+				fmt.Printf("\033[31m%d errors occurred:\033[0m\n", len(result.Errors))
+				for _, e := range result.Errors {
+					fmt.Printf("  - %s\n", e)
+				}
+			}
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview files to delete without deleting")
+	return cmd
 }
