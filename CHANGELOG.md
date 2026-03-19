@@ -1,3 +1,20 @@
+# [1.3.0](https://github.com/Reed-yang/claude-sync/compare/v1.2.2...v1.3.0) (2026-03-19)
+
+
+### Bug Fixes
+
+* wire filter into status and diff commands ([45b1d7f](https://github.com/Reed-yang/claude-sync/commit/45b1d7fc4a3f8af45ad394c1ddd5bb7c7bb8f71b))
+
+
+### Features
+
+* add --target flag and CLI positional args for selective push/pull ([f1e4169](https://github.com/Reed-yang/claude-sync/commit/f1e4169578da4c261ed116cd6c2fc19a48716f8d))
+* add delete command and parallel I/O ([eaece45](https://github.com/Reed-yang/claude-sync/commit/eaece4539d73709ab3f50c701df34d3585300438))
+* add Filter parameter and wire into all Syncer methods ([ea68c99](https://github.com/Reed-yang/claude-sync/commit/ea68c992c00c267966607b36560b6a4ee2adeefe))
+* add Filter type with path args and .claudesyncignore support ([b42763b](https://github.com/Reed-yang/claude-sync/commit/b42763be8aebe3af8d051d665bb3287ca4122e58))
+* add session path remapping script ([8d11ee6](https://github.com/Reed-yang/claude-sync/commit/8d11ee6e1ae61ac3b7b33aae21c339cc958f83bf))
+* parallelize push/pull and add delete CLI command ([491fa4c](https://github.com/Reed-yang/claude-sync/commit/491fa4cba393ba30ba493a2ef1ce2a600f0ba5c6))
+
 ## [1.2.2](https://github.com/tawanorg/claude-sync/compare/v1.2.1...v1.2.2) (2026-02-09)
 
 
