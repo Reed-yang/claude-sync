@@ -1,7 +1,7 @@
 {
-  "name": "@tawandotorg/claude-sync",
+  "name": "@reed-yang/claude-sync",
   "version": "0.4.0",
-  "description": "Sync Claude Code sessions across devices with encrypted cloud storage",
+  "description": "Sync Claude Code sessions across devices with encrypted cloud storage (fork with selective sync, parallel I/O, delete command)",
   "bin": {
     "claude-sync": "./bin/claude-sync.js"
   },
@@ -20,16 +20,16 @@
     "gcs",
     "encryption"
   ],
-  "author": "tawanorg",
+  "author": "Reed-yang",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tawanorg/claude-sync.git"
+    "url": "git+https://github.com/Reed-yang/claude-sync.git"
   },
   "bugs": {
-    "url": "https://github.com/tawanorg/claude-sync/issues"
+    "url": "https://github.com/Reed-yang/claude-sync/issues"
   },
-  "homepage": "https://github.com/tawanorg/claude-sync#readme",
+  "homepage": "https://github.com/Reed-yang/claude-sync#readme",
   "engines": {
     "node": ">=14"
   },

@@ -4,7 +4,7 @@ const https = require("https");
 const fs = require("fs");
 const path = require("path");
 
-const REPO = "tawanorg/claude-sync";
+const REPO = "Reed-yang/claude-sync";
 
 function getPlatform() {
   const platform = process.platform;
